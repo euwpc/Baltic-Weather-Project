@@ -1,26 +1,3 @@
-"""
-Install once:
-    py -m pip install requests matplotlib cartopy numpy scipy pillow
-    or
-    pip install requests matplotlib cartopy numpy scipy pillow netCDF4
-
-QML files must be in the SAME folder as this script:
-    temperature_color_table_high.qml
-    wind_gust_color_table.qml
-    pressure_color_table.qml
-    precipitation_color_table.qml
-
-Run:
-    py main.py
-    or
-    python main.py
-
-Output (one PNG per parameter, saved next to the script):
-    map_1_temperature.png   map_2_wind_speed.png   map_3_wind_gust.png
-    map_4_pressure.png      map_5_humidity.png     map_6_precipitation.png
-    map_7_dewpoint.png
-"""
-
 import os, time, datetime, threading, warnings
 import requests, xml.etree.ElementTree as ET
 import numpy as np
@@ -51,6 +28,37 @@ GRID_STEP = 0.004
 SIGMA     = 2.2
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+
+#  UNIT CONFIG – edit these lines to change display units
+UNIT_TEMP  = "C"      # "C"  | "F"
+UNIT_WIND  = "ms"     # "ms" | "kmh" | "knots"
+UNIT_PRES  = "hPa"    # "hPa"| "mb"  | "inHg"
+UNIT_PREC  = "mm"     # "mm" | "in"
+
+
+def _cv(key, raw):
+    if key in ("temp", "dewp"):
+        v = raw * 9/5 + 32 if UNIT_TEMP == "F" else raw
+        u = "°F" if UNIT_TEMP == "F" else "°C"
+        f = "{:.0f}" if UNIT_TEMP == "F" else "{:.1f}"
+        return v, u, f
+    if key in ("wind", "gust"):
+        v = raw * 3.6 if UNIT_WIND == "kmh" else raw * 1.94384 if UNIT_WIND == "knots" else raw
+        u = {"ms": "m/s", "kmh": "km/h", "knots": "kn"}.get(UNIT_WIND, "m/s")
+        return v, u, "{:.1f}"
+    if key == "pres":
+        v = raw * 0.02953 if UNIT_PRES == "inHg" else raw
+        u = {"hPa": "hPa", "mb": "mb", "inHg": "inHg"}.get(UNIT_PRES, "hPa")
+        f = "{:.2f}" if UNIT_PRES == "inHg" else "{:.1f}"
+        return v, u, f
+    if key == "prec":
+        v = raw * 0.03937 if UNIT_PREC == "in" else raw
+        u = "in" if UNIT_PREC == "in" else "mm"
+        f = "{:.2f}" if UNIT_PREC == "in" else "{:.1f}"
+        return v, u, f
+    return raw, "%", "{:.0f}"
 
 
 def parse_qml(filename, vmin, vmax):
@@ -148,32 +156,89 @@ def _parse_emhi(content):
 
 
 _LV_STATIONS = [
-    ("Rīga",       56.946, 24.106), ("Liepāja",    56.505, 21.011),
-    ("Ventspils",  57.401, 21.544), ("Jelgava",    56.652, 23.721),
-    ("Jūrmala",    56.968, 23.771), ("Jēkabpils",  56.499, 25.877),
-    ("Valmiera",   57.541, 25.426), ("Rēzekne",    56.510, 27.331),
-    ("Daugavpils", 55.875, 26.536), ("Kolka",      57.748, 22.594),
-    ("Mersrags",   57.335, 23.119), ("Ainažu",     57.865, 24.355),
-    ("Sigulda",    57.153, 24.852), ("Alūksne",    57.432, 27.046),
-    ("Zilupe",     56.386, 28.128), ("Pāvilosta",  56.887, 21.193),
-    ("Saldus",     56.666, 22.493), ("Bauska",     56.410, 24.193),
-    ("Stende",     57.165, 22.532), ("Priekuļi",   57.321, 25.352),
+    # Western coast & Kurzeme
+    ("Liepāja",     56.505, 21.011), ("Pāvilosta",   56.887, 21.193),
+    ("Ventspils",   57.401, 21.544), ("Kolka",       57.748, 22.594),
+    ("Roja",        57.504, 22.801), ("Mersrags",    57.335, 23.119),
+    ("Stende",      57.165, 22.532), ("Saldus",      56.666, 22.493),
+    ("Skrunda",     56.680, 22.003), ("Kuldīga",     56.969, 21.961),
+    ("Talsi",       57.244, 22.591), ("Kandava",     57.034, 22.780),
+    ("Tukums",      56.967, 23.153),
+    # Rīga & Pierīga
+    ("Jūrmala",     56.968, 23.771), ("Rīga",        56.946, 24.106),
+    ("Rīga AP",     56.924, 23.971), ("Sigulda",     57.153, 24.852),
+    ("Ogre",        56.815, 24.603),
+    # Vidzeme
+    ("Valmiera",    57.541, 25.426), ("Ainažu",      57.865, 24.355),
+    ("Limbaži",     57.511, 24.716), ("Cēsis",       57.313, 25.270),
+    ("Madona",      56.858, 26.220), ("Gulbene",     57.179, 26.742),
+    ("Alūksne",     57.432, 27.046), ("Priekuļi",    57.321, 25.352),
+    ("Rūjiena",     57.892, 25.330), ("Smiltene",    57.424, 25.902),
+    # Zemgale
+    ("Jelgava",     56.652, 23.721), ("Jēkabpils",   56.499, 25.877),
+    ("Bauska",      56.410, 24.193), ("Dobele",      56.627, 23.279),
+    ("Aizkraukle",  56.601, 25.006),
+    # Latgale
+    ("Rēzekne",     56.510, 27.331), ("Daugavpils",  55.875, 26.536),
+    ("Zilupe",      56.386, 28.128), ("Krāslava",    55.898, 27.176),
+    ("Ludza",       56.544, 27.721), ("Balvi",       57.131, 27.265),
 ]
 
+# Lithuanian Hydrometeorological Service (LHMT) synoptic & climate stations
 _LT_STATIONS = [
-    ("Vilnius",     54.687, 25.279), ("Kaunas",     54.900, 23.933),
-    ("Klaipėda",   55.703, 21.144), ("Šiauliai",   55.934, 23.316),
-    ("Panevėžys",  55.735, 24.337), ("Alytus",     54.396, 24.046),
-    ("Marijampolė",54.559, 23.352), ("Mažeikiai",  56.309, 22.341),
-    ("Jonava",     55.073, 24.279), ("Utena",      55.499, 25.601),
-    ("Kėdainiai",  55.286, 23.970), ("Telšiai",    55.985, 22.254),
-    ("Tauragė",    55.250, 22.289), ("Ukmergė",    55.245, 24.771),
-    ("Visaginas",  55.593, 26.430), ("Plungė",     55.911, 21.846),
-    ("Kretinga",   55.889, 21.237), ("Skuodas",    56.270, 21.529),
-    ("Jurbarkas",  55.074, 22.767), ("Lazdijai",   54.234, 23.517),
-    ("Biržai",     56.200, 24.754), ("Ignalina",   55.342, 26.162),
-    ("Druskininkai",54.017,23.967), ("Šilutė",     55.352, 21.468),
-    ("Rokiškis",   55.960, 25.585),
+    # Coastal & western
+    ("Klaipėda",       55.703, 21.144),
+    ("Nida",           55.303, 21.006),
+    ("Palanga",        55.973, 21.053),
+    ("Šilutė",         55.352, 21.468),
+    ("Kretinga",       55.889, 21.237),
+    ("Skuodas",        56.270, 21.529),
+    ("Plungė",         55.911, 21.846),
+    # Northern
+    ("Mažeikiai",      56.309, 22.341),
+    ("Telšiai",        55.985, 22.254),
+    ("Šiauliai",       55.934, 23.316),
+    ("Joniškis",       56.237, 23.611),
+    ("Pakruojis",      56.068, 23.857),
+    ("Pasvalys",       56.060, 24.396),
+    ("Biržai",         56.200, 24.754),
+    ("Rokiškis",       55.960, 25.585),
+    ("Zarasai",        55.730, 26.244),
+    # North-eastern
+    ("Visaginas",      55.593, 26.430),
+    ("Ignalina",       55.342, 26.162),
+    # Central
+    ("Panevėžys",      55.735, 24.337),
+    ("Ukmergė",        55.245, 24.771),
+    ("Kėdainiai",      55.286, 23.970),
+    ("Jonava",         55.073, 24.279),
+    ("Jurbarkas",      55.074, 22.767),
+    ("Tauragė",        55.250, 22.289),
+    ("Raseiniai",      55.370, 23.120),
+    ("Šakiai",         54.952, 23.044),
+    # Eastern
+    ("Utena",          55.499, 25.601),
+    ("Molėtai",        55.227, 25.418),
+    ("Širvintos",      55.046, 24.952),
+    ("Anykščiai",      55.525, 25.087),
+    ("Kupiškis",       55.839, 24.966),
+    # Capital region
+    ("Vilnius",        54.687, 25.279),
+    ("Vilnius AP",     54.634, 25.278),
+    ("Vievis",         54.774, 24.809),
+    # Southern
+    ("Kaunas",         54.900, 23.933),
+    ("Kaunas AP",      54.879, 24.085),
+    ("Marijampolė",    54.559, 23.352),
+    ("Alytus",         54.396, 24.046),
+    ("Lazdijai",       54.234, 23.517),
+    ("Druskininkai",   54.017, 23.967),
+    ("Varėna",         54.215, 24.571),
+    ("Elektrėnai",     54.778, 24.666),
+    ("Trakai",         54.638, 24.934),
+    ("Šalčininkai",    54.311, 25.389),
+    ("Eišiškės",       54.168, 24.984),
+    ("Kapsukas",       54.569, 23.344),
 ]
 
 
@@ -385,32 +450,37 @@ def render_one(stations, key, cmap, norm, title, unit, fmt,
                 lat0-margin <= slat <= lat1+margin): continue
         ax.plot(slon, slat, "s", color="black", ms=3.2, mec="black", mew=0.0,
                 transform=ccrs.PlateCarree(), zorder=10)
-        ax.text(slon+0.025, slat+0.02, fmt.format(s[key]),
+        _dv, _du, _df = _cv(key, s[key])
+        ax.text(slon+0.025, slat+0.02, _df.format(_dv),
                 fontsize=6.5, fontweight="bold", color="black",
                 path_effects=_PE, transform=ccrs.PlateCarree(), zorder=11)
 
     if s_min and s_max:
-        ax.text(0.012, 0.17, f"{fmt.format(vmax_obs)}{unit}",
+        _vmax, _umax, _fmax = _cv(key, vmax_obs)
+        _vmin, _umin, _fmin = _cv(key, vmin_obs)
+        ax.text(0.012, 0.150, f"{_fmax.format(_vmax)}{_umax}",
                 transform=ax.transAxes, fontsize=14, fontweight="bold",
-                color="#cc0000", path_effects=_PE2, zorder=20)
-        ax.text(0.012, 0.12, s_max["name"],
+                color="#cc0000", path_effects=_PE2, zorder=20, va="baseline")
+        ax.text(0.012, 0.127, s_max["name"],
                 transform=ax.transAxes, fontsize=9, fontweight="bold",
-                color="#cc0000", path_effects=_PE2, zorder=20)
-        ax.text(0.012, 0.07, f"{fmt.format(vmin_obs)}{unit}",
+                color="#cc0000", path_effects=_PE2, zorder=20, va="top")
+        ax.text(0.012, 0.068, f"{_fmin.format(_vmin)}{_umin}",
                 transform=ax.transAxes, fontsize=14, fontweight="bold",
-                color="#0055cc", path_effects=_PE2, zorder=20)
-        ax.text(0.012, 0.02, s_min["name"],
+                color="#0055cc", path_effects=_PE2, zorder=20, va="baseline")
+        ax.text(0.012, 0.045, s_min["name"],
                 transform=ax.transAxes, fontsize=9, fontweight="bold",
-                color="#0055cc", path_effects=_PE2, zorder=20)
+                color="#0055cc", path_effects=_PE2, zorder=20, va="top")
 
     cax = fig.add_axes([0.875, 0.06, 0.022, 0.88])
     cb  = fig.colorbar(plt.cm.ScalarMappable(cmap=cmap, norm=norm),
                        cax=cax, orientation="vertical", extend="both")
-    cb.set_label(unit, fontsize=9, rotation=270, labelpad=14)
+    _, _cb_u, _ = _cv(key, 0.0)
+    cb.set_label(_cb_u, fontsize=9, rotation=270, labelpad=14)
     cb.ax.tick_params(labelsize=8)
     cb.outline.set_linewidth(0.5)
 
-    ax.set_title(f"{region_label}  •  {title}  •  1 km\n{time_str}",
+    _, _tu, _ = _cv(key, 0.0)
+    ax.set_title(f"{region_label}  •  {title} ({_tu})  •  1 km\n{time_str}",
                  fontsize=13, fontweight="bold", pad=10,
                  loc="center", color="#111111")
     fig.text(0.5, 0.005, credits, ha="center", fontsize=8, color="#888888")
@@ -421,13 +491,13 @@ def render_one(stations, key, cmap, norm, title, unit, fmt,
 
 
 PANELS = [
-    ("temp", "Õhutemperatuur 2 m (°C)",          "°C",  "{:.1f}", False, False, "map_1_temperature.png"),
-    ("wind", "Tuule kiirus (m/s)",                "m/s", "{:.1f}", True,  False, "map_2_wind_speed.png"),
-    ("gust", "Tuule puhang – max (m/s)",          "m/s", "{:.1f}", True,  False, "map_3_wind_gust.png"),
-    ("pres", "Meretasemele taandatud rõhk (hPa)", "hPa", "{:.1f}", False, True,  "map_4_pressure.png"),
-    ("hum",  "Suhteline niiskus (%)",             "%",   "{:.0f}", False, False, "map_5_humidity.png"),
-    ("prec", "Sademete hulk (mm/h)",              "mm",  "{:.1f}", False, False, "map_6_precipitation.png"),
-    ("dewp", "Kastepunkt 2 m (°C)",               "°C",  "{:.1f}", False, False, "map_7_dewpoint.png"),
+    ("temp", "Õhutemperatuur 2 m",          "°C",  "{:.1f}", False, False, "map_1_temperature.png"),
+    ("wind", "Tuule kiirus",                "m/s", "{:.1f}", True,  False, "map_2_wind_speed.png"),
+    ("gust", "Tuule puhang – max",          "m/s", "{:.1f}", True,  False, "map_3_wind_gust.png"),
+    ("pres", "Meretasemele taandatud rõhk", "hPa", "{:.1f}", False, True,  "map_4_pressure.png"),
+    ("hum",  "Suhteline niiskus",           "%",   "{:.0f}", False, False, "map_5_humidity.png"),
+    ("prec", "Sademete hulk",               "mm",  "{:.1f}", False, False, "map_6_precipitation.png"),
+    ("dewp", "Kastepunkt 2 m",              "°C",  "{:.1f}", False, False, "map_7_dewpoint.png"),
 ]
 
 
@@ -500,5 +570,3 @@ if __name__ == "__main__":
         while True: time.sleep(5)
     except KeyboardInterrupt:
         print("\nStopped.")
-
-
